@@ -50,4 +50,213 @@
         "model": "gpt-4o",
         "temperature": 0.2,
         "responseFormat": "json",
-        "messages": "SYSTEM:\nYou are an expert resume writer (20+ yrs) and ATS specialist. You MUST NOT fabricate experience, employers, titles, dates, tools, or metrics. Only rephrase, reorganize, and highlight content that ALREADY EXISTS in the provided resume.\n\nUSER:\nUsing ONLY the content in my base resume below, tailor it to the data/analytics role. Prioritize
+        "messages": "SYSTEM:\nYou are an expert resume writer (20+ yrs) and ATS specialist. You MUST NOT fabricate experience, employers, titles, dates, tools, or metrics. Only rephrase, reorganize, and highlight content that ALREADY EXISTS in the provided resume.\n\nUSER:\nUsing ONLY the content in my base resume below, tailor it to the data/analytics role. Prioritize the three responsibilities:\n{{JSON.stringify($json.top_3_responsibilities)}}\n\nConstraints:\n- No made-up info.\n- Keep to one page if possible.\n- Quantify ONLY with metrics explicitly present in my resume; otherwise keep qualitative.\n- Output ATS-friendly Markdown with these sections if present: Header (name, email, phone, location, links), Summary (3 lines), Skills (bulleted or pipe-separated), Experience (reverse-chronological, bullets), Projects, Education, Certifications, Tools.\n- For each bullet: action verb, impact, context; keep to ~1–2 lines each.\n\nBase Resume:\n{{ $json.resume_text }}\n\nReturn ONLY JSON with:\n{\n  \"tailored_resume_markdown\": \"…\",\n  \"bullets_only\": [\"…\", \"…\", \"…\"]\n}"
+      },
+      "id": "LLM2_Tailor",
+      "name": "LLM — Tailor Resume (No Fabrication)",
+      "type": "n8n-nodes-base.openAiChat",
+      "typeVersion": 1,
+      "credentials": { "openAiApi": { "id": "YOUR_OPENAI_CREDENTIAL_ID" } },
+      "position": [20, 0]
+    },
+    {
+      "parameters": { "mode": "mergeByIndex" },
+      "id": "Merge_B_TailorPlusOriginal",
+      "name": "Merge — Tailor + Original",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 2,
+      "position": [220, 100]
+    },
+    {
+      "parameters": {
+        "model": "gpt-4o",
+        "temperature": 0.2,
+        "responseFormat": "json",
+        "messages": "SYSTEM:\nYou are meticulous and literal. Compare two texts and produce a precise diff.\n\nUSER:\nCompare the ORIGINAL resume (Text A) and UPDATED tailored resume (Text B). Produce a 2-column Markdown table with EXACT changes, down to specific wording.\n- Column 1: Original\n- Column 2: Updated\n- List each changed bullet/line separately; show removals and additions.\n- Do not invent content.\n\nText A (Original):\n{{ $json.resume_text }}\n\nText B (Updated):\n{{ $json.tailored_resume_markdown }}\n\nReturn ONLY JSON:\n{\n  \"diff_table_markdown\": \"…\"\n}"
+      },
+      "id": "LLM3_Diff",
+      "name": "LLM — Diff Table (Original vs Updated)",
+      "type": "n8n-nodes-base.openAiChat",
+      "typeVersion": 1,
+      "credentials": { "openAiApi": { "id": "YOUR_OPENAI_CREDENTIAL_ID" } },
+      "position": [420, 100]
+    },
+    {
+      "parameters": {
+        "model": "gpt-4o",
+        "temperature": 0,
+        "responseFormat": "text",
+        "messages": "SYSTEM:\nReply with a single word only.\n\nUSER:\nYou are an expert resume writer with over 20 years of experience. Read these bullets from the resume you just tailored. No action is required now. If you understand, just respond with \"yes\" (lowercase).\n\nBullets:\n{{JSON.stringify($json.bullets_only)}}"
+      },
+      "id": "LLM4_Ack",
+      "name": "LLM — Step 4 Acknowledgement",
+      "type": "n8n-nodes-base.openAiChat",
+      "typeVersion": 1,
+      "credentials": { "openAiApi": { "id": "YOUR_OPENAI_CREDENTIAL_ID" } },
+      "position": [220, -140]
+    },
+    {
+      "parameters": {
+        "model": "gpt-4o",
+        "temperature": 0.25,
+        "responseFormat": "json",
+        "messages": "SYSTEM:\nYou rewrite resume bullets using the structure: \"Accomplished X by the measure Y that resulted in Z\". Be compelling, ≤ 50 words each, and NEVER fabricate metrics. If a metric is missing and {{ $json.use_placeholders_for_missing_metrics }} is true, insert <ADD METRIC> where the number should go.\n\nUSER:\nRewrite the following bullets in that structure. Do not add facts not present in the input. Keep tools/tactics only if present. Output Markdown list.\n\nBullets:\n{{JSON.stringify($json.bullets_only)}}\n\nReturn ONLY JSON:\n{\n  \"rewritten_bullets_markdown\": \"…\"\n}"
+      },
+      "id": "LLM5_Rewrite",
+      "name": "LLM — Rewrite Bullets (X by Y → Z)",
+      "type": "n8n-nodes-base.openAiChat",
+      "typeVersion": 1,
+      "credentials": { "openAiApi": { "id": "YOUR_OPENAI_CREDENTIAL_ID" } },
+      "position": [420, -20]
+    },
+    {
+      "parameters": { "mode": "mergeByIndex" },
+      "id": "Merge_C_DiffPlusAck",
+      "name": "Merge — Diff + Ack",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 2,
+      "position": [620, 20]
+    },
+    {
+      "parameters": { "mode": "mergeByIndex" },
+      "id": "Merge_D_PlusRewrite",
+      "name": "Merge — (Diff+Ack) + Rewrite",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 2,
+      "position": [820, 20]
+    },
+    {
+      "parameters": { "mode": "mergeByIndex" },
+      "id": "Merge_E_PlusTailor",
+      "name": "Merge — (+Tailor)",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 2,
+      "position": [1020, 20]
+    },
+    {
+      "parameters": { "mode": "mergeByIndex" },
+      "id": "Merge_F_PlusTop3",
+      "name": "Merge — (+Top3)",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 2,
+      "position": [1220, 20]
+    },
+    {
+      "parameters": {
+        "functionCode": "return [{ json: {\n  top_3_responsibilities: $json.top_3_responsibilities,\n  why_these_matter: $json.why_these_matter,\n  tailored_resume_markdown: $json.tailored_resume_markdown,\n  diff_table_markdown: $json.diff_table_markdown,\n  acknowledgement_step_4: $json.text || 'yes',\n  rewritten_bullets_markdown: $json.rewritten_bullets_markdown\n} }];"
+      },
+      "id": "Assemble_Core",
+      "name": "Function — Assemble Core Output",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 2,
+      "position": [1420, 20]
+    },
+    {
+      "parameters": {
+        "action": "renderMarkdown",
+        "text": "={{$json.tailored_resume_markdown}}"
+      },
+      "id": "MD_to_HTML",
+      "name": "Markdown — To HTML",
+      "type": "n8n-nodes-base.markdown",
+      "typeVersion": 1,
+      "position": [1620, -100]
+    },
+    {
+      "parameters": {
+        "operation": "create",
+        "documentContent": "={{$json.html}}",
+        "title": "Tailored Resume — {{$now}}",
+        "options": {
+          "mimeType": "text/html",
+          "parents": ["YOUR_GOOGLE_DRIVE_FOLDER_ID"]
+        }
+      },
+      "id": "GDocs_Create",
+      "name": "Google Docs — Create (HTML)",
+      "type": "n8n-nodes-base.googleDocs",
+      "typeVersion": 1,
+      "credentials": { "googleDocsOAuth2Api": { "id": "YOUR_GOOGLE_DOCS_CREDENTIAL_ID" } },
+      "position": [1820, -100]
+    },
+    {
+      "parameters": {
+        "operation": "export",
+        "fileId": "={{$json.id}}",
+        "exportType": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "binaryProperty": "data"
+      },
+      "id": "GDocs_Export_DOCX",
+      "name": "Google Docs — Export (.docx)",
+      "type": "n8n-nodes-base.googleDocs",
+      "typeVersion": 1,
+      "credentials": { "googleDocsOAuth2Api": { "id": "YOUR_GOOGLE_DOCS_CREDENTIAL_ID" } },
+      "position": [2020, -100]
+    },
+    {
+      "parameters": {
+        "operation": "upload",
+        "binaryProperty": "data",
+        "parents": ["YOUR_GOOGLE_DRIVE_FOLDER_ID"],
+        "options": { "fileName": "Tailored_Resume_{{$now}}.docx" }
+      },
+      "id": "GDrive_Upload_DOCX",
+      "name": "Google Drive — Save .docx",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 2,
+      "credentials": { "googleDriveOAuth2Api": { "id": "YOUR_GOOGLE_DRIVE_CREDENTIAL_ID" } },
+      "position": [2220, -100]
+    },
+    {
+      "parameters": { "mode": "mergeByIndex" },
+      "id": "Merge_G_CorePlusDrive",
+      "name": "Merge — Core + Drive File",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 2,
+      "position": [2220, 100]
+    },
+    {
+      "parameters": {
+        "functionCode": "const core = items[0].json;\nconst drive = items[1]?.json || {};\nreturn [{ json: { ...core, docx_file_id: drive.id || null, docx_name: drive.name || null, docx_web_link: drive.webViewLink || null } }];"
+      },
+      "id": "Build_Final_Response",
+      "name": "Function — Build Final Response",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 2,
+      "position": [2420, 100]
+    },
+    {
+      "parameters": {
+        "responseBody": "={{$json}}",
+        "options": { "responseCode": 200 }
+      },
+      "id": "Respond_JSON",
+      "name": "Respond — JSON",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [2620, 100]
+    }
+  ],
+  "connections": {
+    "Webhook — Receive Inputs": { "main": [[{ "node": "Function — Normalize Inputs", "type": "main", "index": 0 }]] },
+    "Function — Normalize Inputs": { "main": [[{ "node": "LLM — Extract Top 3 Responsibilities", "type": "main", "index": 0 }, { "node": "Merge — Tailor + Original", "type": "main", "index": 1 }]] },
+    "LLM — Extract Top 3 Responsibilities": { "main": [[{ "node": "Merge — Inputs + Top3", "type": "main", "index": 1 }]] },
+    "Merge — Inputs + Top3": { "main": [[{ "node": "LLM — Tailor Resume (No Fabrication)", "type": "main", "index": 0 }]] },
+    "LLM — Tailor Resume (No Fabrication)": { "main": [[{ "node": "Merge — Tailor + Original", "type": "main", "index": 0 }, { "node": "LLM — Step 4 Acknowledgement", "type": "main", "index": 0 }]] },
+    "Merge — Tailor + Original": { "main": [[{ "node": "LLM — Diff Table (Original vs Updated)", "type": "main", "index": 0 }, { "node": "LLM — Rewrite Bullets (X by Y → Z)", "type": "main", "index": 0 }]] },
+    "LLM — Diff Table (Original vs Updated)": { "main": [[{ "node": "Merge — Diff + Ack", "type": "main", "index": 0 }]] },
+    "LLM — Step 4 Acknowledgement": { "main": [[{ "node": "Merge — Diff + Ack", "type": "main", "index": 1 }]] },
+    "LLM — Rewrite Bullets (X by Y → Z)": { "main": [[{ "node": "Merge — (Diff+Ack) + Rewrite", "type": "main", "index": 1 }]] },
+    "Merge — Diff + Ack": { "main": [[{ "node": "Merge — (Diff+Ack) + Rewrite", "type": "main", "index": 0 }]] },
+    "Merge — (Diff+Ack) + Rewrite": { "main": [[{ "node": "Merge — (+Tailor)", "type": "main", "index": 0 }]] },
+    "Merge — (+Tailor)": { "main": [[{ "node": "Merge — (+Top3)", "type": "main", "index": 0 }]] },
+    "Merge — (+Top3)": { "main": [[{ "node": "Function — Assemble Core Output", "type": "main", "index": 0 }, { "node": "Markdown — To HTML", "type": "main", "index": 0 }]] },
+    "Markdown — To HTML": { "main": [[{ "node": "Google Docs — Create (HTML)", "type": "main", "index": 0 }]] },
+    "Google Docs — Create (HTML)": { "main": [[{ "node": "Google Docs — Export (.docx)", "type": "main", "index": 0 }]] },
+    "Google Docs — Export (.docx)": { "main": [[{ "node": "Google Drive — Save .docx", "type": "main", "index": 0 }]] },
+    "Google Drive — Save .docx": { "main": [[{ "node": "Merge — Core + Drive File", "type": "main", "index": 1 }]] },
+    "Function — Assemble Core Output": { "main": [[{ "node": "Merge — Core + Drive File", "type": "main", "index": 0 }]] },
+    "Merge — Core + Drive File": { "main": [[{ "node": "Function — Build Final Response", "type": "main", "index": 0 }]] },
+    "Function — Build Final Response": { "main": [[{ "node": "Respond — JSON", "type": "main", "index": 0 }]] }
+  }
+}
